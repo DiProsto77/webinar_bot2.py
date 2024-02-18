@@ -29,7 +29,7 @@ Base.metadata.create_all(engine)
 api_id = 'YOUR_API_ID'
 api_hash = 'YOUR_API_HASH'
 with Client('webinar_bot', api_id, api_hash) as app:
-# Функция для отправки сообщения пользователю
+    # Функция для отправки сообщения пользователю
     async def send_message(user, message):
         try:
             await app.send_message(user.id, message)
@@ -90,7 +90,7 @@ with Client('webinar_bot', api_id, api_hash) as app:
 
             await asyncio.sleep(60) # Пауза в 1 минуту перед следующей итерацией
 
-app = Client("webinar_bot")
+
 loop = asyncio.get_event_loop()
 task = loop.create_task(main())
 app.run()
