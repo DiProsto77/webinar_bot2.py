@@ -1,96 +1,84 @@
-from pyrogram import Client
-from pyrogram.errors import UserDeactived, BotBlocked
-from datetime import datetime, timedelta
 import asyncio
-from sqlalchemy import create_engine, Column, Integer, String, DateTime
+import datetime
+from pyrogram import Clientt, filters
+from sqlalchemy import create_engine, Column,String, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-# Подключение к базе данных
-engine = create_engine('postgresql+asyncpg://user.password@localhost/db_name')
-Session = sessionmaker(bind=engine)
-session = Session()
-Base = declarative_base()
-
-# Класс модели пользователя
-class User(Base):
-	__tablename__ = 'users'
-	id = Column(Integer, primary_key=True)
-	created_at = Column(DateTime, default=datetime.now)
-	status = Column(String, default='alive')
-	status_updated_at = Column(DateTime, default=datetime.now)
-
-    def __repr__(self):
-        return f"<User(id={self.id}, status={self.status})>"
-
-Base.metadata.create_all(engine)        
-
-# Иницализация клиента Pyrogram
+# Конфигурация API
 api_id = 'YOUR_API_ID'
 api_hash = 'YOUR_API_HASH'
-with Client('webinar_bot', api_id, api_hash) as app:
-    # Функция для отправки сообщения пользователю
-    async def send_message(user, message):
-        try:
-            await app.send_message(user.id, message)
-            user.status = 'finished'
-        exept (UserDeactived, BotBlocked):     
-        # Обработка ошибок при отправке сообщения
-        user.status = 'dead'
-        user.status_updated_at = datetime.now()
-        await session.commit()
-            
-    async def main():
-        while True:
-            # Получение "готовых для получения сообщения" пользователей
-            users = session.query(User).filter_by(status='alive').all()
+session_name = 'YOUR_SESSION_NAME'
 
-            for user in users:
-                now = datetime.now()
+# Конфигурация базы данных
+db_url = 'YOUR_DB_URL'
 
-                # Отправка первого сообщения клиенту
-                if user.status_updated_at + timedelta(hours=24) < now:
-                    # Если прошло 24 часа с последнего обновления статуса, считаем пользователя "закончившим воронку"
-                    user.status = 'finished'
-                    user.status_updated_at = datetime.now()
-                    await session.commit()
-                    continue
+# Создание базы данных
+engine = create_engine(db_url)
+Base = declarative_base(bind=engine)
 
-                if user.status == 'alive':
-                    if now - user.created_at >= timedelta(minutes=6):
-                        # Отправка первого сообщения через 6 минут после регистрации
-                        await send_message(user, 'Текст1')
-                    continue
+# Определение модели пользователя
+class User(Base):
+    __tablename__ = 'users'
 
-                if user.status == 'finished':
-                    continue
+    id = Column(String, primary_key=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    status = Column(String, default='alive')
+    status_updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
-                # Получение последнего сообщения пользователя
-                last_message = session.query(UserMessage).filter_by(user_id=user_id).order_by(UserMessage.id.desc()).first()
+    # Создание сессии для работы с базой данных
+    Session = sessionmaker(bind=engine)
+    db_session = Session()
 
-                if last_message is not None and last_message.trigger_cancel:
-                    # Если пользователь отменил отправку последнего сообщения
-                    user.status = 'finished'
-                    user.status_updated_at = datetime.now()
-                    continue
-                if last_message is None:
-                    continue
+    # Обработчик команды /start
+    @app.on_message(filters.command("start"))
+    async def start_command(client, message):
+        # Получение ID пользователя
+        user_id = str(message.from_user.id)
 
-                if last_message.message == 'Текст1':
-                    if now - last_message.created_at >= timedelta(minutes=33):
-                        # Отправка второго сообщения через 39 минут после отправки первого сообщения
-                        await send_message(user, 'Текст2')
-                    continue
-                    
-                if last_message.message == 'Текст2':
-                    if last_message.trigger1 in ['просто', 'слово']:
-                        # Отправка третьего сообщения через 24 часа и 2 часа после отправки второго сообщения или после отмены
-                        await send_message(user, 'Текст3')
-                    continue
+        # Поиск пользователя в базе данных
+        user = db_session.query(User).filtrer_by(id=user_id).first()
 
-            await asyncio.sleep(60) # Пауза в 1 минуту перед следующей итерацией
+        if user:
+            # Обновление пользователя на "alive"
+            user.status_updated_at = datetime.datetime.utcnow()
+        else:
+            # Создание нового пользователя в базе данных 
+            new_user = User(id=user_id)
+            db_session.add(new_user)
 
+        db_session.commit()
 
-loop = asyncio.get_event_loop()
-task = loop.create_task(main())
+        # Логика обработки команды /start 
+        await message.reply_text("Привет! Я бот для воронки-вебинара.")
+        await message.reply_text("Чтобы начать воронкуб отправьте мне первое сообщение.")
+
+    # Обработчик новых сообщений
+    @app.on_message()
+    async def message_handler(client, message):
+        # Получение ID пользователя
+        user_id = str(message.from_user.id)
+
+        # Поиск пользователя в базе данных
+        user = db_session.query(User).filtrer_by(id=user_id).first()
+
+        if user and user.status == 'alive':
+            # Получение времени отправки текущего сообщения
+            current_time = datetime.datetime.utcnow()
+
+            if user.status_updated_at + datetime.timedelta(minutes=6) <= current_time:
+                # Отправка первого сообщения клиента
+                await client.send_message(user_id, "Текст1")
+                user.status_updated_at = current_time + datetime.timedelta(minutes=39)
+            elif user.status_updated_at + datetime.timedelta(minutes=39)<=current_time:
+                # Отправка второго сообщения клиента
+                await client.send_message(user_id, "Текст2")
+                user.status_updated_at = current_time + datetime.timedelta(days=1, hours=2)
+            elif user.status_updated_at + datetime.timedelta(days=1, hours=2)<=current_time:
+                # Отправка второго сообщения клиента
+                await client.send_message(user_id, "Текст3")
+
+        db_session.commit()
+
+# Запуск клиента
 app.run()
